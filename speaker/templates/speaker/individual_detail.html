@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+    
+<p>
+    <a class="btn btn-light" href="{% url 'speaker_individual_list' %}">
+        Individual Listing
+    </a>
+</p>
+<hr>
+
+<a class="btn btn-primary" href="{{ object.get_update_url }}">Edit</a>
+<hr>
+
+<table class="table">
+    <tr><td>Voice sample</td><td>{{ object.voice_sample.url }}</td></tr>
+    <tr><td>Full name</td><td>{{ object.full_name }}</td></tr>
+</table>
+
+<!-- Voice sample verification form -->
+<hr>
+<h3>Verify Voice Sample</h3>
+<form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ voice_verification_form.as_p }}
+    <button type="submit" class="btn btn-success">Upload and Verify</button>
+</form>
+
+{% if messages %}
+<div class="alert alert-info" role="alert">
+    {% for message in messages %}
+        {{ message }}
+    {% endfor %}
+</div>
+{% endif %}
+<button id="startRecording" class="btn btn-primary">Start Recording</button>
+<button id="stopRecording" class="btn btn-danger" style="display:none;">Stop Recording</button>
+
+<form id="voiceForm" hx-post="{% url 'record_voice_sample_url' %}" enctype="multipart/form-data" hx-target="#response" hx-swap="outerHTML">
+    {% csrf_token %}
+    <input type="file" id="audioInput" name="voice_sample" hidden>
+    <button type="submit" id="submitVoice" hidden>Submit</button>
+</form>
+
+<div id="response"></div>
+
+<script>
+    function getCSRFToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === ('csrftoken=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    let mediaRecorder;
+    let audioChunks = [];
+
+    document.getElementById('startRecording').onclick = async () => {
+        audioChunks = [];
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                console.log("Recording stopped, preparing to submit.");
+                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const fileInput = document.getElementById('audioInput');
+                const data = new File([audioBlob], "voice_sample.webm", { type: 'audio/webm', lastModified: new Date().getTime() });
+                const formData = new FormData();
+                formData.append("csrfmiddlewaretoken", getCSRFToken());
+                formData.append("voice_sample", data);
+
+                console.log("Attempting to submit the form.");
+                if (typeof htmx !== 'undefined') {
+                    htmx.trigger("#voiceForm", "submit", {values: formData});
+                } else {
+                    console.error("HTMX is not loaded");
+                }
+            };
+
+            mediaRecorder.start();
+            document.getElementById('startRecording').style.display = 'none';
+            document.getElementById('stopRecording').style.display = 'inline-block';
+        } catch (error) {
+            console.error('An error occurred:', error);
+        }
+    };
+
+    document.getElementById('stopRecording').onclick = () => {
+        mediaRecorder.stop();
+        document.getElementById('startRecording').style.display = 'inline-block';
+        document.getElementById('stopRecording').style.display = 'none';
+    };
+</script>
+
+
+
+{% endblock %}

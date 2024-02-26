@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<div class="my-4">
+    <h3>Upload Voice Sample</h3>
+    <form action="{% url 'upload_voice_sample_url' %}" method="post" enctype="multipart/form-data" hx-post="{% url 'upload_voice_sample_url' %}" hx-target="#upload-response" hx-swap="outerHTML">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="id_name">Name:</label>
+            <input type="text" name="full_name" class="form-control" id="id_name" required>
+        </div>
+        <div class="form-group">
+            <label for="id_voice_sample">Voice Sample:</label>
+            <input type="file" name="voice_sample" class="form-control-file" id="id_voice_sample" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Upload</button>
+    </form>
+    <div id="upload-response"></div>
+</div>
+{% endblock %}
