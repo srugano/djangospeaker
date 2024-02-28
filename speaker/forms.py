@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 
 
 class VoiceVerificationForm(forms.Form):
-    new_voice_sample = forms.FileField(label="Upload new voice sample")
+    voice_sample = forms.FileField(label="Upload new voice sample")
 
 
 class IndividualForm(forms.ModelForm):

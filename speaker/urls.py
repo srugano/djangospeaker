@@ -36,5 +36,4 @@ urlpatterns = (
         name="speaker_individual_delete",
     ),
     path("upload_voice_sample", views.upload_voice_sample, name="upload_voice_sample_url"),
-    path("record_sample", views.record_voice_sample, name="record_voice_sample_url"),
 )

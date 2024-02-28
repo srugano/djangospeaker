@@ -20,29 +20,20 @@
 <!-- Voice sample verification form -->
 <hr>
 <h3>Verify Voice Sample</h3>
-<form method="post" enctype="multipart/form-data">
+
+<div style="display: flex; justify-content: start; align-items: center;">
+    <button id="startRecording" class="btn btn-primary" style="margin-right: 10px;">Start Recording</button>
+    <button id="stopRecording" class="btn btn-danger" style="display: none;">Stop Recording</button>
+</div>
+
+<form id="voiceVerificationForm" hx-post="{% url 'speaker_individual_detail' object.pk %}" enctype="multipart/form-data" hx-target="#response">
     {% csrf_token %}
+    <input type="file" id="audioInput" name="voice_sample" hidden> <!-- Add this line -->
     {{ voice_verification_form.as_p }}
     <button type="submit" class="btn btn-success">Upload and Verify</button>
 </form>
-
-{% if messages %}
-<div class="alert alert-info" role="alert">
-    {% for message in messages %}
-        {{ message }}
-    {% endfor %}
-</div>
-{% endif %}
-<button id="startRecording" class="btn btn-primary">Start Recording</button>
-<button id="stopRecording" class="btn btn-danger" style="display:none;">Stop Recording</button>
-
-<form id="voiceForm" hx-post="{% url 'record_voice_sample_url' %}" enctype="multipart/form-data" hx-target="#response" hx-swap="outerHTML">
-    {% csrf_token %}
-    <input type="file" id="audioInput" name="voice_sample" hidden>
-    <button type="submit" id="submitVoice" hidden>Submit</button>
-</form>
-
 <div id="response"></div>
+
 
 <script>
     function getCSRFToken() {
@@ -62,7 +53,12 @@
 
     let mediaRecorder;
     let audioChunks = [];
-
+    // This polyfill allows for creating a FileList to append to the input
+    function FileListItems(files) {
+      let b = new ClipboardEvent("").clipboardData || new DataTransfer();
+      for (let i = 0, len = files.length; i < len; i++) b.items.add(files[i]);
+      return b.files;
+    }
     document.getElementById('startRecording').onclick = async () => {
         audioChunks = [];
         try {
@@ -74,20 +70,38 @@
             };
 
             mediaRecorder.onstop = () => {
-                console.log("Recording stopped, preparing to submit.");
                 const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
                 const fileInput = document.getElementById('audioInput');
-                const data = new File([audioBlob], "voice_sample.webm", { type: 'audio/webm', lastModified: new Date().getTime() });
-                const formData = new FormData();
-                formData.append("csrfmiddlewaretoken", getCSRFToken());
-                formData.append("voice_sample", data);
+                const data = new File([audioBlob], "voice_sample.webm", {
+                    type: 'audio/webm',
+                    lastModified: new Date().getTime()
+                });
+                fileInput.files = new FileListItems([data]);
 
-                console.log("Attempting to submit the form.");
-                if (typeof htmx !== 'undefined') {
-                    htmx.trigger("#voiceForm", "submit", {values: formData});
-                } else {
-                    console.error("HTMX is not loaded");
-                }
+                let formData = new FormData();
+                formData.append('voice_sample', data);
+                formData.append('csrfmiddlewaretoken', getCSRFToken());
+
+                fetch("{% url 'speaker_individual_detail' object.pk %}", {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': getCSRFToken(),
+                    },
+                })
+                .then(response => response.json())
+                .then(data => {
+                        const messageDiv = document.getElementById('response');
+                        messageDiv.innerHTML = `<strong>Status:</strong> ${data.status}<br>
+                                                <strong>Message:</strong> ${data.message}<br>
+                                                <strong>Similarity:</strong> ${data.similarity}<br>
+                                                <strong>Time Taken:</strong> ${data.elapsed_time.toFixed(2)} seconds<br>`;
+                        messageDiv.className = ''; // Reset any previous class
+                        messageDiv.classList.add('alert', data.status === 'success' ? 'alert-success' : 'alert-danger');
+                    })
+                .catch((error) => {
+                    console.error('Error:', error);
+                });
             };
 
             mediaRecorder.start();

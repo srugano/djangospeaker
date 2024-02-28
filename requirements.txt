@@ -3,3 +3,5 @@ django-extensions
 djangorestframework
 torch
 speechbrain
+python-magic
+torchvision

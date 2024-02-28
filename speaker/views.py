@@ -5,9 +5,16 @@ from django.urls import reverse_lazy
 from . import models
 from . import forms
 import magic
+import subprocess
 from .utils import recognize_speaker
 from django.contrib import messages
 from django.shortcuts import render, redirect
+import torch
+
+
+def convert_webm_to_wav(webm_path, wav_path):
+    command = ["ffmpeg", "-i", webm_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wav_path]
+    subprocess.run(command, check=True)
 
 
 class IndividualListView(generic.ListView):
@@ -29,30 +36,52 @@ class IndividualDetailView(generic.DetailView):
         context["voice_verification_form"] = forms.VoiceVerificationForm()
         return context
 
+    def handle_voice_sample(self, voice_sample):
+        # Check the MIME type
+        voice_sample.seek(0)
+        mime_type = magic.from_buffer(voice_sample.read(2048), mime=True)  # Increase buffer size
+        voice_sample.seek(0)
+        if mime_type not in ["audio/mpeg", "audio/ogg", "audio/wav", "audio/x-wav", "audio/webm", "video/webm"]:
+            return "Unsupported file format.", False
+
+        recognized, elapsed_time, similarity = recognize_speaker(voice_sample, self.object)
+        return recognized, elapsed_time, similarity
+
     def post(self, request, *args, **kwargs):
-        self.object = self.get_object()  # Get the individual object
+        self.object = self.get_object()
         voice_verification_form = forms.VoiceVerificationForm(request.POST, request.FILES)
-
         if voice_verification_form.is_valid():
-            new_voice_sample = request.FILES["voice_sample"]
-            mime = magic.from_buffer(new_voice_sample.read(1024), mime=True)
-            new_voice_sample.seek(0)
-            
-            if mime not in ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/x-wav']:
-                messages.error(request, "Unsupported file format.")
-                return self.form_invalid(voice_verification_form)
-            recognized = recognize_speaker(new_voice_sample, self.object)
-            if recognized:
-                messages.success(request, "The voice sample matches the individual.")
-            else:
-                messages.error(request, "Voice sample does not match the individual.")
-            return redirect(self.object.get_absolute_url())
-        else:
-            return self.form_invalid(voice_verification_form)
+            voice_sample = request.FILES.get("voice_sample")
+            recognized, elapsed_time, similarity = self.handle_voice_sample(voice_sample)
 
-    def form_invalid(self, form):
-        # This method is to handle if the form is not valid, showing form errors
-        return self.render_to_response(self.get_context_data(form=form))
+            # Convert the tensor to a Python float
+            similarity_score = similarity.item() if isinstance(similarity, torch.Tensor) else similarity
+
+            response_data = {
+                "status": "success" if recognized else "error",
+                "message": "The voice sample matches the individual." if recognized else "Voice sample does not match the individual.",
+                "elapsed_time": elapsed_time,
+                "similarity": similarity_score,  # Use the converted score
+            }
+            return JsonResponse(response_data)
+        else:
+            form_errors = voice_verification_form.errors.as_json()
+            return JsonResponse(
+                {
+                    "status": "error",
+                    "message": "Form validation failed",
+                    "form_errors": form_errors,
+                },
+                status=400,
+            )
+
+    def form_invalid(self, *args, **kwargs):
+        context = self.get_context_data()
+        if "voice_verification_form" in kwargs:
+            context["voice_verification_form"] = kwargs["voice_verification_form"]
+        else:
+            context["voice_verification_form"] = forms.VoiceVerificationForm()
+        return self.render_to_response(context)
 
 
 class IndividualUpdateView(generic.UpdateView):
@@ -91,13 +120,3 @@ def upload_voice_sample(request):
     else:
         form = forms.IndividualForm()
     return render(request, "upload.html", {"form": form})
-
-
-def record_voice_sample(request):
-    import ipdb; ipdb.set_trace()
-    if request.method == "POST":
-        voice_sample = request.FILES.get("voice_sample")
-        if voice_sample:
-            # Process the voice sample here
-            return JsonResponse({"status": "success", "message": "Voice sample uploaded successfully."})
-    return JsonResponse({"status": "error", "message": "Invalid request"}, status=400)
